@@ -1,0 +1,6 @@
+{
+  "name": "RecoverIQ",
+  "description": "Merchant revenue recovery platform for Razorpay and digital businesses. Recover failed payments, reduce churn, and automate intelligent payment recovery workflows.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
