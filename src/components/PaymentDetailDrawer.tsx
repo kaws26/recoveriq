@@ -29,6 +29,7 @@ import { RevenueRiskCase, RecoveryActionType } from '../types';
 import { formatINR, cn, formatDate, timeAgo } from '../lib/utils';
 import { NextBestActionCard } from './NextBestActionCard';
 import { RecoveryJourneyTimeline } from './RecoveryJourneyTimeline';
+import { Stage2DiagnosisCard } from './Stage2DiagnosisCard';
 import { CustomerFatigueBadge } from './CustomerFatigueBadge';
 import { CounterfactualModal } from './CounterfactualModal';
 
@@ -43,6 +44,7 @@ interface PaymentDetailDrawerProps {
   }) => Promise<void>;
   onEscalateCase: (caseId: string, notes?: string) => Promise<void>;
   onStopRecovery: (caseId: string, reason?: string) => Promise<void>;
+  onCaseUpdated?: (updatedCase: RevenueRiskCase) => void;
 }
 
 export const PaymentDetailDrawer: React.FC<PaymentDetailDrawerProps> = ({
@@ -51,6 +53,7 @@ export const PaymentDetailDrawer: React.FC<PaymentDetailDrawerProps> = ({
   onExecuteRecovery,
   onEscalateCase,
   onStopRecovery,
+  onCaseUpdated,
 }) => {
   const [isExecuting, setIsExecuting] = useState(false);
   const [selectedStrategy, setSelectedStrategy] = useState<RecoveryActionType>('RETRY_AFTER_DELAY');
@@ -287,6 +290,12 @@ export const PaymentDetailDrawer: React.FC<PaymentDetailDrawerProps> = ({
               })
             }
             isExecuting={isExecuting}
+          />
+
+          {/* Stage 2: Root Cause Diagnosis & Error Forensics */}
+          <Stage2DiagnosisCard
+            riskCase={riskCase}
+            onDiagnosisUpdated={onCaseUpdated}
           />
 
           {/* 7-Stage State Machine Lifecycle Journey */}

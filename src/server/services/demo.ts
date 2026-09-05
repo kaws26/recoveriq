@@ -5,6 +5,7 @@ import { MLRecoveryScorer } from './ml';
 import { AIAgentEngine } from './ai';
 import { PolicyEngine } from './policy';
 import { RecoveryOrchestrator } from './recovery';
+import { DiagnosticEngine } from './diagnosis';
 
 export class DemoService {
   /**
@@ -49,7 +50,26 @@ export class DemoService {
 
     const stageResults: Record<string, any> = {};
 
-    // 1. Stage: SCORE (ML Model)
+    // 1. Stage: DIAGNOSE (Root Cause Analysis & Error Forensics)
+    const diagnosis = DiagnosticEngine.diagnose(payment, customer, merchantId, riskCase.id);
+    riskCase.diagnosis = diagnosis;
+    if (riskCase.status === 'PENDING') {
+      riskCase.status = 'DIAGNOSED';
+    }
+    dbStore.saveDiagnosis(riskCase.id, diagnosis);
+    dbStore.addAuditEvent({
+      merchant_id: merchantId,
+      case_id: riskCase.id,
+      payment_id: payment.id,
+      event_type: 'DIAGNOSIS_COMPLETED',
+      stage: 'DIAGNOSE',
+      actor: 'DIAGNOSTIC_ENGINE',
+      summary: `Stage 2 Diagnosis: ${diagnosis.classification} (${diagnosis.category}). ${diagnosis.root_cause_title}. Recoverability: ${diagnosis.recoverability_score}/100.`,
+      details: diagnosis,
+    });
+    stageResults.diagnosis = diagnosis;
+
+    // 2. Stage: SCORE (ML Model)
     const features = MLRecoveryScorer.extractFeatures(payment, customer);
     const mlScore = MLRecoveryScorer.predictRecoveryProbability(features);
     const candidateStrategies = MLRecoveryScorer.compareCandidateStrategies(features, mlScore);
