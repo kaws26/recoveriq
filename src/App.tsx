@@ -19,12 +19,6 @@ import { RecoveryLiftLabView } from './components/RecoveryLiftLabView';
 import { PolicySimulatorView } from './components/PolicySimulatorView';
 import { PaymentDegradationRadar } from './components/PaymentDegradationRadar';
 import { UnrecoveredAutopsyView } from './components/UnrecoveredAutopsyView';
-import { EnterpriseTestWorkflowsView } from './components/EnterpriseTestWorkflowsView';
-import { MakerCheckerApprovalsView } from './components/MakerCheckerApprovalsView';
-import { GatewayRoutingMatrixView } from './components/GatewayRoutingMatrixView';
-import { CommandPaletteModal } from './components/CommandPaletteModal';
-import { AuthModal } from './components/AuthModal';
-import { ROLE_DEFINITIONS } from './components/UserProfileMenu';
 
 
 import {
@@ -40,15 +34,12 @@ import {
   RecoveryActionType,
   FailureReason,
   PaymentMethod,
-  EnterpriseRole,
-  EnterpriseUser,
 } from './types';
 import * as api from './lib/api';
 import confetti from 'canvas-confetti';
 import { CheckCircle2, AlertTriangle, Info, Sparkles, ExternalLink } from 'lucide-react';
-import { ThemeProvider } from './context/ThemeContext';
 
-function AppContent() {
+export function App() {
   const [currentTab, setCurrentTab] = useState<NavTab>('overview');
   const [dateRange, setDateRange] = useState<'7d' | '30d' | '90d'>('7d');
 
@@ -71,80 +62,6 @@ function AppContent() {
   const [isCreatePaymentOpen, setIsCreatePaymentOpen] = useState(false);
   const [activeCheckoutPaymentId, setActiveCheckoutPaymentId] = useState<string | null>(null);
   const [isResetting, setIsResetting] = useState(false);
-
-  // Enterprise Role & Governance State
-  const [currentRole, setCurrentRole] = useState<EnterpriseRole>('MERCHANT_ADMIN');
-  const [currentUser, setCurrentUser] = useState<EnterpriseUser>({
-    id: 'usr_admin_01',
-    name: 'Kawaljeet Singh',
-    email: 'finance@apexdigital.in',
-    role: 'MERCHANT_ADMIN',
-  });
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
-  const [pendingApprovalsCount, setPendingApprovalsCount] = useState(1);
-
-  // Load authenticated session on mount
-  useEffect(() => {
-    api
-      .getMe()
-      .then((res) => {
-        if (res.user) {
-          setCurrentUser(res.user);
-          setCurrentRole(res.user.role);
-        }
-      })
-      .catch((err) => {
-        console.debug('Session check (using demo user profile):', err);
-      });
-  }, []);
-
-  // Synchronized Role Switching (updates local state, role metadata, and backend token session)
-  const handleRoleChange = async (role: EnterpriseRole) => {
-    setCurrentRole(role);
-    const meta = ROLE_DEFINITIONS[role];
-    if (meta) {
-      setCurrentUser((prev) => ({
-        ...prev,
-        name: meta.name,
-        email: meta.email,
-        role,
-      }));
-    }
-
-    try {
-      const res = await api.switchRole(role);
-      if (res.user) {
-        setCurrentUser(res.user);
-      }
-      showToast(`Switched active role to ${meta?.title || role}`, 'info');
-    } catch (err: any) {
-      showToast(`Switched active role to ${meta?.title || role}`, 'info');
-    }
-  };
-
-  // Sign out / Switch account handler
-  const handleLogout = async () => {
-    try {
-      await api.logout();
-    } catch {
-      // ignore
-    }
-    showToast('Signed out of session. Choose an account or role to continue.', 'info');
-    setIsAuthModalOpen(true);
-  };
-
-  // Global Command Palette (Cmd+K / Ctrl+K) Shortcut
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        setIsCommandPaletteOpen((prev) => !prev);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
 
   // Notification Toast
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -205,15 +122,6 @@ function AppContent() {
       setPolicy(polData);
       setFailureReasons(reasonsData);
       setInterventions(intervData);
-
-      // Fetch pending maker-checker approvals
-      try {
-        const mcRequests = await api.fetchMakerCheckerRequests();
-        const pending = mcRequests.filter((r) => r.status === 'PENDING_APPROVAL').length;
-        setPendingApprovalsCount(pending);
-      } catch (err) {
-        // non-blocking
-      }
 
       // Keep selected case synced if drawer is open
       setSelectedCase((prev) => {
@@ -374,7 +282,7 @@ function AppContent() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-['Inter'] flex antialiased transition-colors">
+    <div className="min-h-screen bg-slate-50 text-slate-900 font-['Inter'] flex antialiased">
       {/* Toast Notification */}
       {toast && (
         <div className="fixed bottom-5 right-5 z-50 animate-in fade-in slide-in-from-bottom-5">
@@ -395,14 +303,7 @@ function AppContent() {
         onOpenHelpModal={() => setIsHelpModalOpen(true)}
         onOpenCreatePayment={() => setIsCreatePaymentOpen(true)}
         onOpenOnboarding={() => setIsOnboardingOpen(true)}
-        onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
         needsActionCount={needsActionCount}
-        pendingApprovalsCount={pendingApprovalsCount}
-        currentRole={currentRole}
-        onSelectRole={handleRoleChange}
-        currentUser={currentUser}
-        onLogout={handleLogout}
-        onOpenAuthModal={() => setIsAuthModalOpen(true)}
       />
 
       {/* Main Workspace Area */}
@@ -448,30 +349,6 @@ function AppContent() {
               cases={cases}
               onSelectCase={setSelectedCase}
             />
-          )}
-
-          {currentTab === 'test_workflows' && (
-            <EnterpriseTestWorkflowsView
-              onRefreshData={loadAllData}
-              onOpenCaseDetail={(caseId) => {
-                const c = cases.find((x) => x.id === caseId);
-                if (c) setSelectedCase(c);
-              }}
-            />
-          )}
-
-          {currentTab === 'maker_checker' && (
-            <MakerCheckerApprovalsView
-              currentRole={currentRole}
-              onOpenCaseDetail={(caseId) => {
-                const c = cases.find((x) => x.id === caseId);
-                if (c) setSelectedCase(c);
-              }}
-            />
-          )}
-
-          {currentTab === 'gateways' && (
-            <GatewayRoutingMatrixView onRefreshData={loadAllData} />
           )}
 
           {currentTab === 'lift_lab' && (
@@ -535,10 +412,6 @@ function AppContent() {
         onExecuteRecovery={handleExecuteRecovery}
         onEscalateCase={handleEscalateCase}
         onStopRecovery={handleStopRecovery}
-        onCaseUpdated={(updatedCase) => {
-          setSelectedCase(updatedCase);
-          setCases((prev) => prev.map((c) => (c.id === updatedCase.id ? updatedCase : c)));
-        }}
       />
 
       {/* Ingest Failed Payment Modal */}
@@ -579,35 +452,7 @@ function AppContent() {
         isOpen={isHelpModalOpen}
         onClose={() => setIsHelpModalOpen(false)}
       />
-
-      {/* Global Command Palette Modal (Cmd+K / Ctrl+K) */}
-      <CommandPaletteModal
-        isOpen={isCommandPaletteOpen}
-        onClose={() => setIsCommandPaletteOpen(false)}
-        onNavigate={(tab) => setCurrentTab(tab as NavTab)}
-        onSelectRole={handleRoleChange}
-        currentRole={currentRole}
-      />
-
-      {/* Enterprise Authentication & Role Login Modal */}
-      <AuthModal
-        isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
-        onAuthSuccess={(user) => {
-          setCurrentUser(user);
-          setCurrentRole(user.role);
-          showToast(`Signed in as ${user.name} (${user.role})`, 'success');
-        }}
-      />
     </div>
-  );
-}
-
-export function App() {
-  return (
-    <ThemeProvider defaultTheme="system" storageKey="recoveriq-theme">
-      <AppContent />
-    </ThemeProvider>
   );
 }
 

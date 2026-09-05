@@ -20,135 +20,19 @@ import {
   UnrecoveredRevenueAnalysis,
   CounterfactualScenario,
   CustomerFatigueProfile,
-  CompanyTestScenario,
-  WebhookTestTemplate,
-  WebhookDispatchResult,
-  MakerCheckerRequest,
-  GatewayRouteHealth,
-  EnterpriseRole,
 } from '../types';
 
 const API_BASE = '/api';
 
-let cachedAuthToken: string | null = null;
-
-export function getAuthToken(): string | null {
-  if (cachedAuthToken) return cachedAuthToken;
-  try {
-    cachedAuthToken = localStorage.getItem('recoveriq_auth_token');
-  } catch {
-    // ignore
-  }
-  return cachedAuthToken;
-}
-
-export function setAuthToken(token: string | null) {
-  cachedAuthToken = token;
-  try {
-    if (token) {
-      localStorage.setItem('recoveriq_auth_token', token);
-    } else {
-      localStorage.removeItem('recoveriq_auth_token');
-    }
-  } catch {
-    // ignore
-  }
-}
-
-export function getAuthHeaders(): Record<string, string> {
-  const token = getAuthToken();
-  if (token) {
-    return { Authorization: `Bearer ${token}` };
-  }
-  return {};
-}
-
-export async function authFetch(url: string, init?: RequestInit): Promise<Response> {
-  const headers = new Headers(init?.headers);
-  const token = getAuthToken();
-  if (token && !headers.has('Authorization')) {
-    headers.set('Authorization', `Bearer ${token}`);
-  }
-  return fetch(url, { ...init, headers });
-}
-
-export async function login(email?: string, password?: string): Promise<{ token: string; user: any }> {
-  const res = await fetch(`${API_BASE}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error?.message || 'Login failed');
-  }
-  const data = await res.json();
-  if (data.token) {
-    setAuthToken(data.token);
-  }
-  return data;
-}
-
-export async function register(params: {
-  company_name: string;
-  business_email: string;
-  password?: string;
-  currency?: string;
-  country?: string;
-  role?: EnterpriseRole;
-}): Promise<{ token: string; user: any }> {
-  const res = await fetch(`${API_BASE}/auth/register`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error?.message || 'Registration failed');
-  }
-  const data = await res.json();
-  if (data.token) {
-    setAuthToken(data.token);
-  }
-  return data;
-}
-
-export async function getMe(): Promise<{ user: any }> {
-  const res = await authFetch(`${API_BASE}/auth/me`);
-  if (!res.ok) throw new Error('Failed to get user profile');
-  return res.json();
-}
-
-export async function switchRole(role: EnterpriseRole): Promise<{ token: string; user: any }> {
-  const res = await authFetch(`${API_BASE}/auth/switch-role`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ role }),
-  });
-  if (!res.ok) throw new Error('Failed to switch role');
-  const data = await res.json();
-  if (data.token) {
-    setAuthToken(data.token);
-  }
-  return data;
-}
-
-export async function logout(): Promise<void> {
-  try {
-    await authFetch(`${API_BASE}/auth/logout`, { method: 'POST' });
-  } finally {
-    setAuthToken(null);
-  }
-}
 
 export async function fetchDashboardSummary(): Promise<DashboardSummary> {
-  const res = await authFetch(`${API_BASE}/dashboard/summary`);
+  const res = await fetch(`${API_BASE}/dashboard/summary`);
   if (!res.ok) throw new Error('Failed to load dashboard summary');
   return res.json();
 }
 
 export async function fetchDashboardTrends(): Promise<TrendDataPoint[]> {
-  const res = await authFetch(`${API_BASE}/dashboard/trends`);
+  const res = await fetch(`${API_BASE}/dashboard/trends`);
   if (!res.ok) throw new Error('Failed to load trends');
   return res.json();
 }
@@ -157,26 +41,14 @@ export async function fetchCases(filter?: { status?: string; search?: string }):
   const params = new URLSearchParams();
   if (filter?.status && filter.status !== 'ALL') params.append('status', filter.status);
   if (filter?.search) params.append('search', filter.search);
-  const res = await authFetch(`${API_BASE}/revenue-at-risk?${params.toString()}`);
+  const res = await fetch(`${API_BASE}/revenue-at-risk?${params.toString()}`);
   if (!res.ok) throw new Error('Failed to load recovery cases');
   return res.json();
 }
 
 export async function fetchCaseById(caseId: string): Promise<RevenueRiskCase> {
-  const res = await authFetch(`${API_BASE}/recovery/${caseId}`);
+  const res = await fetch(`${API_BASE}/recovery/${caseId}`);
   if (!res.ok) throw new Error('Failed to load case details');
-  return res.json();
-}
-
-export async function diagnoseCase(caseId: string): Promise<{ success: boolean; diagnosis: any; riskCase: RevenueRiskCase }> {
-  const res = await authFetch(`${API_BASE}/recovery/${caseId}/diagnose`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error?.message || 'Case diagnosis failed');
-  }
   return res.json();
 }
 
@@ -490,113 +362,5 @@ export async function fetchCustomerFatigue(customerId: string): Promise<Customer
   if (!res.ok) throw new Error('Failed to load customer fatigue profile');
   return res.json();
 }
-
-// Enterprise Company Test Workflows & Webhook Sandbox APIs
-export async function fetchTestScenarios(): Promise<CompanyTestScenario[]> {
-  const res = await fetch(`${API_BASE}/test-workflows/scenarios`);
-  if (!res.ok) throw new Error('Failed to load company test scenarios');
-  return res.json();
-}
-
-export async function runTestScenario(scenarioId: string): Promise<CompanyTestScenario> {
-  const res = await fetch(`${API_BASE}/test-workflows/scenarios/${scenarioId}/run`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-  });
-  if (!res.ok) throw new Error('Test scenario execution failed');
-  return res.json();
-}
-
-export async function fetchWebhookTemplates(): Promise<WebhookTestTemplate[]> {
-  const res = await fetch(`${API_BASE}/test-workflows/webhooks/templates`);
-  if (!res.ok) throw new Error('Failed to load webhook templates');
-  return res.json();
-}
-
-export async function dispatchWebhookTest(params: {
-  gateway: string;
-  payload: Record<string, any>;
-}): Promise<WebhookDispatchResult> {
-  const res = await fetch(`${API_BASE}/test-workflows/webhooks/dispatch`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params),
-  });
-  if (!res.ok) throw new Error('Webhook test dispatch failed');
-  return res.json();
-}
-
-// Enterprise Maker-Checker Governance APIs
-export async function fetchMakerCheckerRequests(): Promise<MakerCheckerRequest[]> {
-  const res = await fetch(`${API_BASE}/governance/maker-checker`);
-  if (!res.ok) throw new Error('Failed to load maker-checker requests');
-  return res.json();
-}
-
-export async function createMakerCheckerRequest(params: {
-  case_id: string;
-  action_type: string;
-  amount: number;
-  reason: string;
-  justification_notes: string;
-  requested_by?: { user_id: string; name: string; role: EnterpriseRole };
-}): Promise<MakerCheckerRequest> {
-  const res = await fetch(`${API_BASE}/governance/maker-checker/request`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params),
-  });
-  if (!res.ok) throw new Error('Failed to submit maker-checker approval request');
-  return res.json();
-}
-
-export async function approveMakerCheckerRequest(
-  requestId: string,
-  reviewed_by: { user_id: string; name: string; role: EnterpriseRole },
-  review_notes?: string
-): Promise<{ success: boolean; request: MakerCheckerRequest; message: string }> {
-  const res = await fetch(`${API_BASE}/governance/maker-checker/${requestId}/approve`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ reviewed_by, review_notes }),
-  });
-  if (!res.ok) throw new Error('Failed to approve request');
-  return res.json();
-}
-
-export async function rejectMakerCheckerRequest(
-  requestId: string,
-  reviewed_by: { user_id: string; name: string; role: EnterpriseRole },
-  review_notes?: string
-): Promise<{ success: boolean; request: MakerCheckerRequest; message: string }> {
-  const res = await fetch(`${API_BASE}/governance/maker-checker/${requestId}/reject`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ reviewed_by, review_notes }),
-  });
-  if (!res.ok) throw new Error('Failed to reject request');
-  return res.json();
-}
-
-// Gateway Matrix APIs
-export async function fetchGatewayMatrix(): Promise<GatewayRouteHealth[]> {
-  const res = await fetch(`${API_BASE}/gateways/matrix`);
-  if (!res.ok) throw new Error('Failed to load gateway matrix');
-  return res.json();
-}
-
-export async function updateGatewayRoute(
-  routeId: string,
-  updates: Partial<GatewayRouteHealth>
-): Promise<GatewayRouteHealth> {
-  const res = await fetch(`${API_BASE}/gateways/matrix/${routeId}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(updates),
-  });
-  if (!res.ok) throw new Error('Failed to update gateway route');
-  return res.json();
-}
-
 
 

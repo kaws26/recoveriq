@@ -1,5 +1,5 @@
 // RecoverIQ — Unrecovered Revenue Intelligence & Autopsy Service
-import { UnrecoveredRevenueAnalysis, UnrecoveredRootCauseCategory } from '../../types';
+import { UnrecoveredRevenueAnalysis, RootCauseCategory } from '../../types';
 import { dbStore } from '../db/store';
 
 export class UnrecoveredRevenueService {
@@ -24,7 +24,7 @@ export class UnrecoveredRevenueService {
     const totalUnrecoveredAmount = Math.max(0, totalAtRisk - totalRecovered);
     const unrecoveredRate = totalAtRisk > 0 ? Math.round((totalUnrecoveredAmount / totalAtRisk) * 1000) / 10 : 25.5;
 
-    const categories: UnrecoveredRootCauseCategory[] = [
+    const categories: RootCauseCategory[] = [
       {
         category: 'EXPIRED_INSTRUMENT',
         label: 'Expired or Revoked Card / Mandate',

@@ -25,7 +25,6 @@ import {
 } from 'lucide-react';
 import { RevenueRiskCase, CaseStatus, RecoveryActionType } from '../types';
 import { formatINR, formatDate, timeAgo, cn } from '../lib/utils';
-import { Stage2DiagnosisCard } from './Stage2DiagnosisCard';
 import confetti from 'canvas-confetti';
 
 interface CommandCenterProps {
@@ -39,7 +38,6 @@ interface CommandCenterProps {
   isAnalyzing: boolean;
   isExecuting: boolean;
   onOpenDetailModal: (c: RevenueRiskCase) => void;
-  onDiagnosisUpdated?: (updatedCase: RevenueRiskCase) => void;
 }
 
 const STAGES = [
@@ -65,7 +63,6 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
   isAnalyzing,
   isExecuting,
   onOpenDetailModal,
-  onDiagnosisUpdated,
 }) => {
   const currentCase = selectedCase || cases[0] || null;
 
@@ -95,9 +92,8 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
       return 'upcoming';
     }
     if (currentCase.status === 'PENDING') {
-      if (stageKey === 'DETECT') return 'completed';
-      if (stageKey === 'DIAGNOSE') return currentCase.diagnosis ? 'completed' : 'current';
-      if (stageKey === 'SCORE') return currentCase.diagnosis ? 'current' : 'upcoming';
+      if (stageKey === 'DETECT' || stageKey === 'DIAGNOSE') return 'completed';
+      if (stageKey === 'SCORE') return 'current';
       return 'upcoming';
     }
     return 'upcoming';
@@ -338,17 +334,8 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
             </div>
           </div>
 
-          {/* Right Column (8 Cols): Stage 2 Diagnosis, ML Probability, AI Decision & Deterministic Guardrails */}
+          {/* Right Column (8 Cols): ML Probability, AI Decision & Deterministic Guardrails */}
           <div className="lg:col-span-8 space-y-5">
-            {/* Stage 2: Root Cause Diagnosis & Error Forensics */}
-            <Stage2DiagnosisCard
-              riskCase={currentCase}
-              onDiagnosisUpdated={(updated) => {
-                onSelectCase(updated);
-                onDiagnosisUpdated?.(updated);
-              }}
-            />
-
             {/* 1. ML Probability & Feature Weights */}
             <div className="bg-slate-900/90 rounded-2xl p-5 border border-slate-800 shadow-sm space-y-4">
               <div className="flex items-center justify-between">

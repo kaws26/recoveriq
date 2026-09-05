@@ -193,54 +193,6 @@ export interface RecoveryActionRecord {
   created_at: string;
 }
 
-// --- STAGE 2: ROOT CAUSE DIAGNOSIS & ERROR FORENSICS ---
-export type FailureClassification = 'TRANSIENT' | 'CUSTOMER_ACTIONABLE' | 'TERMINAL';
-
-export type RootCauseCategory =
-  | 'NETWORK_GATEWAY'
-  | 'ISSUING_BANK'
-  | 'CUSTOMER_AUTHENTICATION'
-  | 'BALANCE_FUNDS'
-  | 'REGULATORY_LIMIT'
-  | 'INTEGRATION_ERROR';
-
-export interface ErrorSubCodeAnalysis {
-  raw_code: string;
-  standard_code: string;
-  description: string;
-  gateway_component: 'ACQUIRER' | 'ISSUER' | 'NPCI_SWITCH' | 'GATEWAY_ORCHESTRATION' | 'USER_CLIENT';
-  recovery_feasibility: 'AUTO_RETRYABLE' | 'CUSTOMER_LINK_RECOMMENDED' | 'NON_RETRYABLE';
-  spec_reference?: string;
-}
-
-export interface BankHealthImpact {
-  bank_name: string;
-  system_state: 'HEALTHY' | 'ELEVATED_LATENCY' | 'DEGRADED_DOWN';
-  latency_p95_ms: number;
-  observed_failure_rate_pct: number;
-  incident_correlation: boolean;
-  incident_note?: string;
-}
-
-export interface DiagnosisReport {
-  id: string;
-  case_id: string;
-  classification: FailureClassification;
-  category: RootCauseCategory;
-  root_cause_title: string;
-  root_cause_summary: string;
-  detailed_autopsy: string[];
-  error_analysis: ErrorSubCodeAnalysis;
-  bank_impact?: BankHealthImpact;
-  recoverability_score: number; // 0 to 100
-  is_retryable: boolean;
-  requires_customer_action: boolean;
-  recommended_next_step: string;
-  suggested_cooldown_seconds: number;
-  diagnosed_at: string;
-  engine_version: string;
-}
-
 export interface RevenueRiskCase {
   id: string;
   merchant_id: string;
@@ -251,7 +203,6 @@ export interface RevenueRiskCase {
   priority: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
   at_risk_amount: number;
   recovered_amount: number;
-  diagnosis?: DiagnosisReport;
   ml_score?: MLScoreResult;
   ai_decision?: AIDecision;
   policy_evaluation?: PolicyEvaluation;
@@ -297,14 +248,7 @@ export interface AuditEvent {
     | 'VERIFY'
     | 'MEASURE'
     | 'AUDIT';
-  actor:
-    | 'SYSTEM_INGEST'
-    | 'DIAGNOSTIC_ENGINE'
-    | 'ML_ENGINE'
-    | 'AI_AGENT'
-    | 'POLICY_ENGINE'
-    | 'EXECUTION_PROVIDER'
-    | 'MERCHANT_ADMIN';
+  actor: 'SYSTEM_INGEST' | 'ML_ENGINE' | 'AI_AGENT' | 'POLICY_ENGINE' | 'EXECUTION_PROVIDER' | 'MERCHANT_ADMIN';
   summary: string;
   details: Record<string, any>;
   timestamp: string;
@@ -421,14 +365,11 @@ export interface InterventionStat {
 // --- RECOVERY STATE MACHINE & JOURNEY ---
 export type RecoveryStageKey =
   | 'INGESTION'
-  | 'DIAGNOSIS'
   | 'ML_SCORING'
-  | 'AI_DECISION'
   | 'POLICY_EVAL'
   | 'ACTION_EXECUTION'
   | 'VERIFICATION'
-  | 'OUTCOME_ACCOUNTING'
-  | 'AUDIT_TRAIL';
+  | 'OUTCOME_ACCOUNTING';
 
 export interface RecoveryJourneyStage {
   stage: RecoveryStageKey;
@@ -554,7 +495,7 @@ export interface PaymentDegradationAlert {
 }
 
 // --- UNRECOVERED REVENUE AUTOPSY ---
-export interface UnrecoveredRootCauseCategory {
+export interface RootCauseCategory {
   category: string;
   label: string;
   count: number;
@@ -572,7 +513,7 @@ export interface UnrecoveredRevenueAnalysis {
   hard_declines_amount: number;
   soft_failures_unrecovered_amount: number;
   preventable_leakage_amount: number;
-  categories: UnrecoveredRootCauseCategory[];
+  categories: RootCauseCategory[];
   preventive_playbook: Array<{
     title: string;
     impact: string;
@@ -594,136 +535,5 @@ export interface CounterfactualScenario {
   delta_vs_chosen_strategy: number;
   risk_profile: 'LOW' | 'MEDIUM' | 'HIGH';
   rationale: string;
-}
-
-// --- ENTERPRISE GOVERNANCE & ROLES ---
-export type EnterpriseRole =
-  | 'MERCHANT_ADMIN'
-  | 'RISK_OFFICER'
-  | 'PAYMENT_OPS'
-  | 'SUPER_ADMIN'
-  | 'AUDITOR'
-  | 'FINANCE_AUDITOR';
-
-export interface EnterpriseUser {
-  id: string;
-  name: string;
-  email: string;
-  role: EnterpriseRole;
-  department?: string;
-  permissions?: string[];
-  avatar_url?: string;
-  last_login?: string;
-  status?: 'ACTIVE' | 'SUSPENDED' | 'PENDING_VERIFICATION';
-  merchant_id?: string;
-  merchant_name?: string;
-}
-
-export interface MakerCheckerRequest {
-  id: string;
-  merchant_id: string;
-  case_id: string;
-  payment_id: string;
-  requested_by: {
-    user_id: string;
-    name: string;
-    role: EnterpriseRole;
-  };
-  action_type: RecoveryActionType | 'WRITE_OFF' | 'MANUAL_REFUND' | 'POLICY_OVERRIDE';
-  amount: number;
-  currency: string;
-  reason: string;
-  justification_notes: string;
-  status: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'EXPIRED';
-  created_at: string;
-  reviewed_by?: {
-    user_id: string;
-    name: string;
-    role: EnterpriseRole;
-  };
-  reviewed_at?: string;
-  review_notes?: string;
-}
-
-// --- COMPANY TEST WORKFLOWS & SANDBOX TESTING ---
-export type TestScenarioId =
-  | 'SCENARIO_UPI_AUTOPAY'
-  | 'SCENARIO_OUTAGE_CASCADE'
-  | 'SCENARIO_MAKER_CHECKER'
-  | 'SCENARIO_CARD_UPDATER'
-  | 'SCENARIO_MULTI_CHANNEL_DUNNING'
-  | 'SCENARIO_WEBHOOK_REPLAY';
-
-export interface TestExecutionStep {
-  step_number: number;
-  stage_name: string;
-  description: string;
-  status: 'PENDING' | 'RUNNING' | 'PASSED' | 'FAILED' | 'SKIPPED';
-  duration_ms?: number;
-  input_payload?: any;
-  output_result?: any;
-  timestamp?: string;
-}
-
-export interface CompanyTestScenario {
-  id: TestScenarioId;
-  name: string;
-  badge: string;
-  category: 'UPI_AUTOPAY' | 'RESILIENCE' | 'ENTERPRISE_GOVERNANCE' | 'CARD_LIFECYCLE' | 'DUNNING_EXPERIENCE' | 'WEBHOOK_PIPELINE';
-  description: string;
-  business_impact: string;
-  expected_outcome: string;
-  status: 'IDLE' | 'RUNNING' | 'PASSED' | 'FAILED';
-  steps: TestExecutionStep[];
-  metrics_summary?: {
-    recovered_revenue?: number;
-    latency_ms?: number;
-    recovery_rate?: number;
-    audit_events_count?: number;
-    mitigation_applied?: string;
-  };
-  last_executed_at?: string;
-}
-
-// --- WEBHOOK SIMULATOR & GATEWAY PAYLOADS ---
-export type GatewayProvider = 'razorpay' | 'stripe' | 'payu' | 'cashfree' | 'adyen' | 'billdesk' | 'npci_upi';
-
-export interface WebhookTestTemplate {
-  gateway: GatewayProvider;
-  event_type: string;
-  event_name: string;
-  description: string;
-  sample_payload: Record<string, any>;
-  signature_header_name: string;
-  sample_signature: string;
-}
-
-export interface WebhookDispatchResult {
-  success: boolean;
-  gateway: GatewayProvider;
-  event_type: string;
-  http_status: number;
-  response_body: any;
-  latency_ms: number;
-  created_case_id?: string;
-  audit_logged: boolean;
-  signature_verified: boolean;
-}
-
-// --- GATEWAY ROUTING & SWITCH MATRIX ---
-export interface GatewayRouteHealth {
-  id: string;
-  name: string;
-  provider: GatewayProvider;
-  status: 'OPERATIONAL' | 'DEGRADED' | 'OUTAGE';
-  success_rate: number;
-  p95_latency_ms: number;
-  routing_weight_pct: number;
-  supported_methods: PaymentMethod[];
-  circuit_breaker_active: boolean;
-  last_downtime?: string;
-  primary_currency: string;
-  failover_target_provider?: GatewayProvider;
-  failure_count_24h?: number;
 }
 

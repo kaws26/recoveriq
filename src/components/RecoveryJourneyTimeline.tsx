@@ -12,7 +12,6 @@ import {
   Sparkles,
   Server,
   UserCheck,
-  Stethoscope,
 } from 'lucide-react';
 import { RevenueRiskCase, RecoveryJourneyStage } from '../types';
 
@@ -22,21 +21,20 @@ interface RecoveryJourneyTimelineProps {
 
 export const RecoveryJourneyTimeline: React.FC<RecoveryJourneyTimelineProps> = ({ riskCase }) => {
   const payment = riskCase.payment;
-  const diagnosis = riskCase.diagnosis;
   const mlScore = riskCase.ml_score;
   const aiDecision = riskCase.ai_decision;
   const policyEval = riskCase.policy_evaluation;
   const latestAction = riskCase.latest_action;
 
-  // Build explicit 7-stage state machine journey matching RecoveryJourneyStage model
+  // Build explicit 6-stage state machine journey matching RecoveryJourneyStage model
   const stages: RecoveryJourneyStage[] = [
     {
       stage: 'INGESTION',
-      label: '1. Detect & Event Ingestion',
+      label: '1. Ingest & Root Cause Diagnosis',
       status: 'COMPLETED',
       timestamp: riskCase.created_at,
       actor: 'SYSTEM_INGEST',
-      description: `Detected payment failure on ${payment?.payment_method?.toUpperCase() || 'UPI'} (${payment?.failure_reason || 'network glitch'}) with error code ${payment?.failure_code || 'GATEWAY_TIMEOUT'}. Event normalized into risk case.`,
+      description: `Detected payment failure on ${payment?.payment_method?.toUpperCase() || 'UPI'} (${payment?.failure_reason || 'network glitch'}) with error code ${payment?.failure_code || 'GATEWAY_TIMEOUT'}. Case initialized.`,
       details: {
         amount: riskCase.at_risk_amount,
         failure_reason: payment?.failure_reason || 'temporary_network_failure',
@@ -44,24 +42,8 @@ export const RecoveryJourneyTimeline: React.FC<RecoveryJourneyTimelineProps> = (
       },
     },
     {
-      stage: 'DIAGNOSIS',
-      label: '2. Root Cause Diagnosis & Forensics',
-      status: diagnosis ? 'COMPLETED' : 'RUNNING',
-      timestamp: diagnosis?.diagnosed_at || riskCase.created_at,
-      actor: 'DIAGNOSTIC_ENGINE',
-      description: diagnosis
-        ? `Categorized as ${diagnosis.classification} (${diagnosis.category.replace(/_/g, ' ')}) with standardized code ${diagnosis.error_analysis?.standard_code || 'NPCI_U30'}. Feasibility: ${diagnosis.recoverability_score}%.`
-        : 'Running deterministic error autopsy & switch attribution...',
-      details: {
-        classification: diagnosis?.classification,
-        category: diagnosis?.category,
-        standard_code: diagnosis?.error_analysis?.standard_code,
-        recoverability_score: diagnosis?.recoverability_score,
-      },
-    },
-    {
       stage: 'ML_SCORING',
-      label: '3. ML XGBoost Probability Scoring',
+      label: '2. ML XGBoost Probability Scoring',
       status: mlScore ? 'COMPLETED' : 'RUNNING',
       timestamp: mlScore?.scored_at || riskCase.created_at,
       actor: 'ML_ENGINE',
@@ -157,8 +139,6 @@ export const RecoveryJourneyTimeline: React.FC<RecoveryJourneyTimelineProps> = (
     switch (actor) {
       case 'SYSTEM_INGEST':
         return <Server className="w-4 h-4 text-sky-600" />;
-      case 'DIAGNOSTIC_ENGINE':
-        return <Stethoscope className="w-4 h-4 text-cyan-600" />;
       case 'RULE_ENGINE':
         return <Activity className="w-4 h-4 text-indigo-600" />;
       case 'ML_ENGINE':

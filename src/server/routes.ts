@@ -16,17 +16,10 @@ import { UnrecoveredRevenueService } from './services/unrecovered';
 import { CounterfactualService } from './services/counterfactual';
 import { NaturalPolicyEngine } from './services/naturalPolicy';
 import { CustomerFatigueEngine } from './services/fatigue';
-import { EnterpriseTestWorkflowsService } from './services/testWorkflows';
-import { DiagnosticEngine } from './services/diagnosis';
-import { PaymentMethod, FailureReason, TestScenarioId, EnterpriseRole } from '../types';
-import { userStore } from './db/users';
-import { signToken, requireAuth, optionalAuth, requireRole, AuthenticatedRequest } from './middleware/auth';
-import { rateLimiter, securityHeaders } from './middleware/security';
+import { PaymentMethod, FailureReason } from '../types';
+
 
 export const apiRouter = Router();
-
-// Apply security headers across all API routes
-apiRouter.use(securityHeaders);
 
 // Start background polling service
 RazorpayPollingService.start(5);
@@ -35,9 +28,6 @@ RazorpayPollingService.start(5);
 const DEFAULT_MERCHANT_ID = 'merchant_rzp_live_01';
 
 const getMerchantId = (req: Request): string => {
-  const authReq = req as AuthenticatedRequest;
-  if (authReq.merchantId) return authReq.merchantId;
-  if (authReq.user?.merchant_id) return authReq.user.merchant_id;
   return (req.headers['x-merchant-id'] as string) || DEFAULT_MERCHANT_ID;
 };
 
@@ -51,18 +41,12 @@ const sendError = (res: Response, status: number, code: string, message: string)
   });
 };
 
-// Rate limiter for auth endpoints
-const authLimiter = rateLimiter({ maxRequests: 20, windowMs: 60000, prefix: 'auth_rate_limit' });
-
-// Global optional auth middleware for tenant and role context
-apiRouter.use(optionalAuth);
-
 // ==========================================
 // 1. AUTHENTICATION & COMPANY ONBOARDING
 // ==========================================
-apiRouter.post('/auth/register', authLimiter, (req, res) => {
+apiRouter.post('/auth/register', (req, res) => {
   try {
-    const { company_name, business_email, password, currency, country, role } = req.body;
+    const { company_name, business_email, currency, country } = req.body;
     if (!company_name || !business_email) {
       return sendError(res, 400, 'INVALID_INPUT', 'Company name and business email are required.');
     }
@@ -74,121 +58,49 @@ apiRouter.post('/auth/register', authLimiter, (req, res) => {
       country: country || 'India',
     });
 
-    const user = userStore.createUser({
-      email: business_email,
-      password: password || 'RecoverIQ@2026!',
-      name: company_name,
-      role: (role as EnterpriseRole) || 'MERCHANT_ADMIN',
-      merchant_id: merchant.id,
-    });
-
-    const token = signToken(user);
-
     res.status(201).json({
       success: true,
-      token,
+      token: `jwt_session_${Date.now()}`,
       user: {
-        ...user,
+        id: `usr_${Date.now()}`,
+        name: company_name,
+        email: business_email,
+        role: 'MERCHANT_ADMIN',
         merchant,
       },
     });
   } catch (err: any) {
-    sendError(res, 400, 'REGISTRATION_FAILED', err.message);
+    sendError(res, 500, 'REGISTRATION_FAILED', err.message);
   }
 });
 
-apiRouter.post('/auth/login', authLimiter, (req, res) => {
-  try {
-    const { email, password } = req.body;
-    const targetEmail = (email || 'finance@apexdigital.in').trim().toLowerCase();
-
-    let user = userStore.findByEmail(targetEmail);
-
-    // If account doesn't exist, create it on-demand for frictionless enterprise evaluation
-    if (!user) {
-      const sanitized = userStore.createUser({
-        email: targetEmail,
-        password: password || 'RecoverIQ@2026!',
-        name: targetEmail.split('@')[0].toUpperCase(),
-        role: 'MERCHANT_ADMIN',
-      });
-      user = userStore.findById(sanitized.id);
-    }
-
-    // Verify password if provided
-    if (password && user && !userStore.validatePassword(user, password)) {
-      // In demo mode, if password matches demo password allow it
-      if (password !== 'RecoverIQ@2026!') {
-        return sendError(res, 401, 'INVALID_CREDENTIALS', 'Invalid email or password.');
-      }
-    }
-
-    if (!user) {
-      return sendError(res, 401, 'INVALID_CREDENTIALS', 'User not found.');
-    }
-
-    userStore.updateLastLogin(user.id);
-    const sanitized = userStore.sanitize(user);
-    const token = signToken(sanitized);
-    const merchant = dbStore.getMerchant(user.merchant_id) || dbStore.getMerchant(DEFAULT_MERCHANT_ID);
-
-    res.json({
-      token,
-      user: {
-        ...sanitized,
-        merchant,
-      },
-    });
-  } catch (err: any) {
-    sendError(res, 500, 'LOGIN_FAILED', err.message);
-  }
+apiRouter.post('/auth/login', (req, res) => {
+  const { email } = req.body;
+  const merchant = dbStore.getMerchant(DEFAULT_MERCHANT_ID);
+  res.json({
+    token: `jwt_session_${Date.now()}`,
+    user: {
+      id: 'usr_admin_01',
+      name: 'Kawaljeet Singh',
+      email: email || 'finance@apexdigital.in',
+      role: 'MERCHANT_ADMIN',
+      merchant,
+    },
+  });
 });
 
 apiRouter.post('/auth/logout', (_req, res) => {
   res.json({ success: true, message: 'Logged out successfully.' });
 });
 
-apiRouter.get('/auth/me', (req: AuthenticatedRequest, res) => {
-  const user = req.user || userStore.getAllSanitized()[0];
-  const merchant = dbStore.getMerchant(user.merchant_id) || dbStore.getMerchant(DEFAULT_MERCHANT_ID);
+apiRouter.get('/auth/me', (req, res) => {
+  const merchant = dbStore.getMerchant(getMerchantId(req));
   res.json({
     user: {
-      ...user,
-      merchant,
-    },
-  });
-});
-
-// Switch role endpoint: generates a valid token for the selected enterprise role
-apiRouter.post('/auth/switch-role', optionalAuth, (req: AuthenticatedRequest, res) => {
-  const { role } = req.body;
-  if (!role) {
-    return sendError(res, 400, 'INVALID_ROLE', 'Role is required.');
-  }
-
-  // Find corresponding seed user for that role, or fallback safely
-  const seedUsers = userStore.getAllSanitized();
-  let targetUser = seedUsers.find((u) => u.role === role);
-  if (!targetUser) {
-    targetUser = {
-      id: req.user?.id || `usr_${Date.now()}`,
-      merchant_id: req.user?.merchant_id || DEFAULT_MERCHANT_ID,
-      email: req.user?.email || `${role.toLowerCase()}@apexdigital.in`,
-      name: req.user?.name || `${role.replace(/_/g, ' ')} User`,
-      role: role as EnterpriseRole,
-      status: 'ACTIVE',
-      created_at: new Date().toISOString(),
-    };
-  }
-
-  const token = signToken(targetUser);
-  const merchant = dbStore.getMerchant(targetUser.merchant_id) || dbStore.getMerchant(DEFAULT_MERCHANT_ID);
-
-  res.json({
-    success: true,
-    token,
-    user: {
-      ...targetUser,
+      id: 'usr_admin_01',
+      name: 'Kawaljeet Singh',
+      email: 'finance@apexdigital.in',
+      role: 'MERCHANT_ADMIN',
       merchant,
     },
   });
@@ -517,55 +429,8 @@ apiRouter.get('/recovery/:case_id', (req, res) => {
 });
 
 // ==========================================
-// 5. RECOVERY ACTIONS: DIAGNOSE, ANALYZE, EXECUTE, STOP, ESCALATE
+// 5. RECOVERY ACTIONS: ANALYZE, EXECUTE, STOP, ESCALATE
 // ==========================================
-
-// Stage 2: Explicit Root Cause Diagnosis & Error Forensics
-apiRouter.post('/recovery/:case_id/diagnose', async (req, res) => {
-  try {
-    const merchantId = getMerchantId(req);
-    const riskCase = dbStore.getCaseById(req.params.case_id, merchantId);
-    if (!riskCase) {
-      return sendError(res, 404, 'CASE_NOT_FOUND', 'Case not found');
-    }
-
-    const payment = dbStore.getPayment(riskCase.payment_id, merchantId);
-    if (!payment) {
-      return sendError(res, 404, 'PAYMENT_NOT_FOUND', 'Associated payment not found');
-    }
-
-    const customer = dbStore.getCustomer(payment.customer_id, merchantId);
-    const diagnosis = DiagnosticEngine.diagnose(payment, customer, merchantId, riskCase.id);
-
-    riskCase.diagnosis = diagnosis;
-    if (riskCase.status === 'PENDING') {
-      riskCase.status = 'DIAGNOSED';
-    }
-    dbStore.saveDiagnosis(riskCase.id, diagnosis);
-
-    dbStore.addAuditEvent({
-      merchant_id: merchantId,
-      case_id: riskCase.id,
-      payment_id: payment.id,
-      event_type: 'DIAGNOSIS_COMPLETED',
-      stage: 'DIAGNOSE',
-      actor: 'DIAGNOSTIC_ENGINE',
-      summary: `Stage 2 Diagnosis executed: ${diagnosis.classification} (${diagnosis.category}). ${diagnosis.root_cause_title}. Recoverability score: ${diagnosis.recoverability_score}/100.`,
-      details: diagnosis,
-    });
-
-    res.json({
-      success: true,
-      case_id: riskCase.id,
-      stage: 'DIAGNOSE',
-      diagnosis,
-      riskCase: dbStore.getCaseById(riskCase.id, merchantId),
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message || 'Diagnosis failed' });
-  }
-});
-
 apiRouter.post('/recovery/:case_id/analyze', async (req, res) => {
   try {
     const merchantId = getMerchantId(req);
@@ -582,23 +447,7 @@ apiRouter.post('/recovery/:case_id/analyze', async (req, res) => {
     const customer = dbStore.getCustomer(payment.customer_id, merchantId);
     const policy = dbStore.getPolicy(merchantId);
 
-    // Stage 2: Root Cause Diagnosis & Error Forensics
-    const diagnosis = DiagnosticEngine.diagnose(payment, customer, merchantId, riskCase.id);
-    riskCase.diagnosis = diagnosis;
-    dbStore.saveDiagnosis(riskCase.id, diagnosis);
-
-    dbStore.addAuditEvent({
-      merchant_id: merchantId,
-      case_id: riskCase.id,
-      payment_id: payment.id,
-      event_type: 'DIAGNOSIS_COMPLETED',
-      stage: 'DIAGNOSE',
-      actor: 'DIAGNOSTIC_ENGINE',
-      summary: `Stage 2 Diagnosis: ${diagnosis.classification} (${diagnosis.category}). ${diagnosis.root_cause_title}. Recoverability score: ${diagnosis.recoverability_score}/100.`,
-      details: diagnosis,
-    });
-
-    // Stage 3: ML Scoring
+    // 1. ML Scoring
     const features = MLRecoveryScorer.extractFeatures(payment, customer);
     const mlScore = MLRecoveryScorer.predictRecoveryProbability(features);
     const candidateStrategies = MLRecoveryScorer.compareCandidateStrategies(features, mlScore);
@@ -1063,159 +912,4 @@ apiRouter.get('/customers/:customer_id/fatigue', (req, res) => {
     sendError(res, 500, 'FATIGUE_FETCH_FAILED', err.message);
   }
 });
-
-// ==========================================
-// 17. ENTERPRISE TEST WORKFLOWS & SANDBOX
-// ==========================================
-apiRouter.get('/test-workflows/scenarios', (_req, res) => {
-  try {
-    const scenarios = EnterpriseTestWorkflowsService.getScenarios();
-    res.json(scenarios);
-  } catch (err: any) {
-    sendError(res, 500, 'SCENARIOS_FETCH_FAILED', err.message);
-  }
-});
-
-apiRouter.post('/test-workflows/scenarios/:id/run', async (req, res) => {
-  try {
-    const merchantId = getMerchantId(req);
-    const scenarioId = req.params.id as TestScenarioId;
-    const result = await EnterpriseTestWorkflowsService.executeScenario(scenarioId, merchantId);
-    res.json(result);
-  } catch (err: any) {
-    sendError(res, 500, 'SCENARIO_EXECUTION_FAILED', err.message);
-  }
-});
-
-apiRouter.get('/test-workflows/webhooks/templates', (_req, res) => {
-  try {
-    const templates = EnterpriseTestWorkflowsService.getWebhookTemplates();
-    res.json(templates);
-  } catch (err: any) {
-    sendError(res, 500, 'TEMPLATES_FETCH_FAILED', err.message);
-  }
-});
-
-apiRouter.post('/test-workflows/webhooks/dispatch', async (req, res) => {
-  try {
-    const merchantId = getMerchantId(req);
-    const { gateway, payload } = req.body;
-    if (!gateway || !payload) {
-      return sendError(res, 400, 'INVALID_INPUT', 'Gateway and payload are required.');
-    }
-    const result = await EnterpriseTestWorkflowsService.dispatchWebhookTest({
-      gateway,
-      payload,
-      merchantId,
-    });
-    res.json(result);
-  } catch (err: any) {
-    sendError(res, 500, 'WEBHOOK_DISPATCH_FAILED', err.message);
-  }
-});
-
-// ==========================================
-// 18. DUAL-AUTHORIZATION (MAKER-CHECKER) GOVERNANCE
-// ==========================================
-apiRouter.get('/governance/maker-checker', (req, res) => {
-  try {
-    const merchantId = getMerchantId(req);
-    const requests = dbStore.getMakerCheckerRequests(merchantId);
-    res.json(requests);
-  } catch (err: any) {
-    sendError(res, 500, 'MAKER_CHECKER_FETCH_FAILED', err.message);
-  }
-});
-
-apiRouter.post('/governance/maker-checker/request', (req, res) => {
-  try {
-    const merchantId = getMerchantId(req);
-    const { case_id, action_type, amount, reason, justification_notes, requested_by } = req.body;
-    if (!case_id || !action_type || !amount) {
-      return sendError(res, 400, 'INVALID_INPUT', 'Case ID, action type, and amount are required.');
-    }
-    const request = dbStore.createMakerCheckerRequest({
-      merchant_id: merchantId,
-      case_id,
-      action_type,
-      amount: Number(amount),
-      reason: reason || 'Manual threshold exception',
-      justification_notes: justification_notes || 'Dual-authorization requested by operator',
-      requested_by: requested_by || {
-        user_id: 'usr_ops_01',
-        name: 'Aarav Nair',
-        role: 'PAYMENT_OPS',
-      },
-    });
-    res.status(201).json(request);
-  } catch (err: any) {
-    sendError(res, 500, 'MAKER_CHECKER_CREATION_FAILED', err.message);
-  }
-});
-
-apiRouter.post('/governance/maker-checker/:id/approve', (req, res) => {
-  try {
-    const { reviewed_by, review_notes } = req.body;
-    const request = dbStore.approveMakerCheckerRequest(
-      req.params.id,
-      reviewed_by || {
-        user_id: 'usr_risk_01',
-        name: 'Meera Iyer',
-        role: 'RISK_OFFICER',
-      },
-      review_notes
-    );
-    res.json({
-      success: true,
-      request,
-      message: 'Dual authorization approved successfully. Risk case transitioned to EXECUTING.',
-    });
-  } catch (err: any) {
-    sendError(res, 500, 'MAKER_CHECKER_APPROVAL_FAILED', err.message);
-  }
-});
-
-apiRouter.post('/governance/maker-checker/:id/reject', (req, res) => {
-  try {
-    const { reviewed_by, review_notes } = req.body;
-    const request = dbStore.rejectMakerCheckerRequest(
-      req.params.id,
-      reviewed_by || {
-        user_id: 'usr_risk_01',
-        name: 'Meera Iyer',
-        role: 'RISK_OFFICER',
-      },
-      review_notes
-    );
-    res.json({
-      success: true,
-      request,
-      message: 'Dual authorization rejected.',
-    });
-  } catch (err: any) {
-    sendError(res, 500, 'MAKER_CHECKER_REJECTION_FAILED', err.message);
-  }
-});
-
-// ==========================================
-// 19. GATEWAY ROUTING & SWITCH MATRIX
-// ==========================================
-apiRouter.get('/gateways/matrix', (_req, res) => {
-  try {
-    const routes = dbStore.getGatewayRoutes();
-    res.json(routes);
-  } catch (err: any) {
-    sendError(res, 500, 'GATEWAYS_FETCH_FAILED', err.message);
-  }
-});
-
-apiRouter.patch('/gateways/matrix/:id', (req, res) => {
-  try {
-    const updated = dbStore.updateGatewayRoute(req.params.id, req.body);
-    res.json(updated);
-  } catch (err: any) {
-    sendError(res, 500, 'GATEWAY_UPDATE_FAILED', err.message);
-  }
-});
-
 

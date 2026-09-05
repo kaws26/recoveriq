@@ -13,14 +13,10 @@ import {
   FailureReason,
   PaymentMethod,
   RecoveryActionType,
-  MakerCheckerRequest,
-  GatewayRouteHealth,
-  EnterpriseRole,
 } from '../../types';
 import { NextBestActionEngine } from '../services/nba';
 import { CustomerFatigueEngine } from '../services/fatigue';
 import { MLRecoveryScorer } from '../services/ml';
-import { DiagnosticEngine } from '../services/diagnosis';
 
 
 class RecoverIQDataStore {
@@ -34,8 +30,6 @@ class RecoverIQDataStore {
   private recoveryActions: Map<string, RecoveryActionRecord> = new Map();
   private auditEvents: AuditEvent[] = [];
   private idempotencyKeys: Set<string> = new Set();
-  private makerCheckerRequests: Map<string, MakerCheckerRequest> = new Map();
-  private gatewayRoutes: GatewayRouteHealth[] = [];
 
   constructor() {
     this.seedInitialData();
@@ -338,7 +332,7 @@ class RecoverIQDataStore {
       updated_at: occurredAt,
     };
 
-    // Stage 1 Audit: Detection
+    // Audit: Detection
     this.auditEvents.push({
       id: `aud_detect_${riskCase.id}`,
       merchant_id: params.merchant_id,
@@ -354,23 +348,6 @@ class RecoverIQDataStore {
         method: params.payment_method,
       },
       timestamp: occurredAt,
-    });
-
-    // Stage 2: Root Cause Diagnosis & Error Forensics
-    const diagnosis = DiagnosticEngine.diagnose(payment, customer, params.merchant_id, riskCase.id);
-    riskCase.diagnosis = diagnosis;
-
-    this.auditEvents.push({
-      id: `aud_diag_${riskCase.id}`,
-      merchant_id: params.merchant_id,
-      case_id: riskCase.id,
-      payment_id: payment.id,
-      event_type: 'DIAGNOSIS_COMPLETED',
-      stage: 'DIAGNOSE',
-      actor: 'DIAGNOSTIC_ENGINE',
-      summary: `Stage 2 Diagnosis: ${diagnosis.classification} failure categorized under ${diagnosis.category}. ${diagnosis.root_cause_title}. Recoverability score: ${diagnosis.recoverability_score}/100.`,
-      details: diagnosis,
-      timestamp: new Date(new Date(occurredAt).getTime() + 5000).toISOString(),
     });
 
     if (params.with_ml || params.with_full_recovery_trail || params.with_decision || params.with_policy_escalation || params.with_policy_block) {
@@ -1018,257 +995,8 @@ class RecoverIQDataStore {
       },
     });
 
-    // Stage 2: Immediate Root Cause Diagnosis
-    const customer = this.customers.get(custId);
-    const diagnosis = DiagnosticEngine.diagnose(payment, customer, params.merchant_id, riskCase.id);
-    riskCase.diagnosis = diagnosis;
-    this.cases.set(riskCase.id, riskCase);
-
-    this.addAuditEvent({
-      merchant_id: params.merchant_id,
-      case_id: riskCase.id,
-      payment_id: payment.id,
-      event_type: 'DIAGNOSIS_COMPLETED',
-      stage: 'DIAGNOSE',
-      actor: 'DIAGNOSTIC_ENGINE',
-      summary: `Stage 2 Diagnosis: ${diagnosis.classification} failure categorized under ${diagnosis.category}. ${diagnosis.root_cause_title}. Recoverability score: ${diagnosis.recoverability_score}/100.`,
-      details: diagnosis,
-    });
-
     return this.populateCase(riskCase);
-  }
-
-  public saveDiagnosis(caseId: string, diagnosis: any): void {
-    const riskCase = this.cases.get(caseId);
-    if (riskCase) {
-      riskCase.diagnosis = diagnosis;
-      if (riskCase.status === 'PENDING') {
-        riskCase.status = 'DIAGNOSED';
-      }
-      riskCase.updated_at = new Date().toISOString();
-      this.cases.set(caseId, riskCase);
-    }
-  }
-
-  // --- MAKER-CHECKER (4-EYE PRINCIPLE) GOVERNANCE ---
-  public createMakerCheckerRequest(params: {
-    merchant_id: string;
-    case_id: string;
-    action_type: RecoveryActionType | 'WRITE_OFF' | 'MANUAL_REFUND' | 'POLICY_OVERRIDE';
-    amount: number;
-    currency?: string;
-    reason: string;
-    justification_notes: string;
-    requested_by: {
-      user_id: string;
-      name: string;
-      role: EnterpriseRole;
-    };
-  }): MakerCheckerRequest {
-    const riskCase = this.cases.get(params.case_id);
-    const id = `req_mc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-    const request: MakerCheckerRequest = {
-      id,
-      merchant_id: params.merchant_id,
-      case_id: params.case_id,
-      payment_id: riskCase?.payment_id || `pay_${params.case_id}`,
-      requested_by: params.requested_by,
-      action_type: params.action_type,
-      amount: params.amount,
-      currency: params.currency || 'INR',
-      reason: params.reason,
-      justification_notes: params.justification_notes,
-      status: 'PENDING_APPROVAL',
-      created_at: new Date().toISOString(),
-    };
-
-    this.makerCheckerRequests.set(id, request);
-
-    this.addAuditEvent({
-      merchant_id: params.merchant_id,
-      case_id: params.case_id,
-      payment_id: request.payment_id,
-      event_type: 'CASE_ESCALATED',
-      stage: 'DECIDE',
-      actor: 'MERCHANT_ADMIN',
-      summary: `Dual-Authorization (Maker-Checker) approval requested for ${params.action_type} (₹${params.amount.toLocaleString('en-IN')}) by ${params.requested_by.name} (${params.requested_by.role}).`,
-      details: {
-        request_id: id,
-        reason: params.reason,
-        justification: params.justification_notes,
-      },
-    });
-
-    return request;
-  }
-
-  public getMakerCheckerRequests(merchantId: string): MakerCheckerRequest[] {
-    const list: MakerCheckerRequest[] = [];
-    for (const req of this.makerCheckerRequests.values()) {
-      if (req.merchant_id === merchantId) {
-        list.push(req);
-      }
-    }
-    return list.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  }
-
-  public approveMakerCheckerRequest(
-    requestId: string,
-    reviewedBy: { user_id: string; name: string; role: EnterpriseRole },
-    reviewNotes?: string
-  ): MakerCheckerRequest {
-    const request = this.makerCheckerRequests.get(requestId);
-    if (!request) {
-      throw new Error(`Maker-Checker request ${requestId} not found`);
-    }
-
-    request.status = 'APPROVED';
-    request.reviewed_by = reviewedBy;
-    request.reviewed_at = new Date().toISOString();
-    request.review_notes = reviewNotes || 'Authorized and approved by Risk Officer.';
-
-    // Update the associated risk case
-    const riskCase = this.cases.get(request.case_id);
-    if (riskCase) {
-      if (request.action_type === 'WRITE_OFF') {
-        riskCase.status = 'STOPPED';
-      } else {
-        riskCase.status = 'EXECUTING';
-      }
-      riskCase.updated_at = new Date().toISOString();
-      this.cases.set(riskCase.id, riskCase);
-    }
-
-    this.addAuditEvent({
-      merchant_id: request.merchant_id,
-      case_id: request.case_id,
-      payment_id: request.payment_id,
-      event_type: 'MANUAL_OVERRIDE',
-      stage: 'EXECUTE',
-      actor: 'MERCHANT_ADMIN',
-      summary: `Maker-Checker Dual Approval GRANTED by ${reviewedBy.name} (${reviewedBy.role}) for ${request.action_type}. Request ID: ${requestId}.`,
-      details: {
-        request_id: requestId,
-        approved_by: reviewedBy,
-        review_notes: request.review_notes,
-      },
-    });
-
-    return request;
-  }
-
-  public rejectMakerCheckerRequest(
-    requestId: string,
-    reviewedBy: { user_id: string; name: string; role: EnterpriseRole },
-    reviewNotes?: string
-  ): MakerCheckerRequest {
-    const request = this.makerCheckerRequests.get(requestId);
-    if (!request) {
-      throw new Error(`Maker-Checker request ${requestId} not found`);
-    }
-
-    request.status = 'REJECTED';
-    request.reviewed_by = reviewedBy;
-    request.reviewed_at = new Date().toISOString();
-    request.review_notes = reviewNotes || 'Declined by Risk Officer.';
-
-    this.addAuditEvent({
-      merchant_id: request.merchant_id,
-      case_id: request.case_id,
-      payment_id: request.payment_id,
-      event_type: 'CASE_BLOCKED',
-      stage: 'DECIDE',
-      actor: 'MERCHANT_ADMIN',
-      summary: `Maker-Checker Dual Approval REJECTED by ${reviewedBy.name} (${reviewedBy.role}). Reason: ${request.review_notes}`,
-      details: {
-        request_id: requestId,
-        rejected_by: reviewedBy,
-        review_notes: request.review_notes,
-      },
-    });
-
-    return request;
-  }
-
-  // --- GATEWAY HEALTH & SMART ROUTING SWITCH MATRIX ---
-  public getGatewayRoutes(): GatewayRouteHealth[] {
-    if (this.gatewayRoutes.length === 0) {
-      this.gatewayRoutes = [
-        {
-          id: 'gw_rzp_in',
-          name: 'Razorpay Primary Switch',
-          provider: 'razorpay',
-          status: 'OPERATIONAL',
-          success_rate: 0.942,
-          p95_latency_ms: 320,
-          routing_weight_pct: 60,
-          supported_methods: ['upi', 'card', 'netbanking', 'wallet', 'emi'],
-          circuit_breaker_active: false,
-          primary_currency: 'INR',
-        },
-        {
-          id: 'gw_stripe_global',
-          name: 'Stripe International Gateway',
-          provider: 'stripe',
-          status: 'OPERATIONAL',
-          success_rate: 0.968,
-          p95_latency_ms: 410,
-          routing_weight_pct: 20,
-          supported_methods: ['card'],
-          circuit_breaker_active: false,
-          primary_currency: 'USD',
-        },
-        {
-          id: 'gw_npci_upi',
-          name: 'NPCI UPI 2.0 Direct Switch',
-          provider: 'npci_upi',
-          status: 'OPERATIONAL',
-          success_rate: 0.915,
-          p95_latency_ms: 240,
-          routing_weight_pct: 10,
-          supported_methods: ['upi'],
-          circuit_breaker_active: false,
-          primary_currency: 'INR',
-        },
-        {
-          id: 'gw_cashfree_failover',
-          name: 'Cashfree Auto-Failover Switch',
-          provider: 'cashfree',
-          status: 'OPERATIONAL',
-          success_rate: 0.928,
-          p95_latency_ms: 380,
-          routing_weight_pct: 5,
-          supported_methods: ['upi', 'card', 'netbanking'],
-          circuit_breaker_active: false,
-          primary_currency: 'INR',
-        },
-        {
-          id: 'gw_payu_backup',
-          name: 'PayU Enterprise Backup',
-          provider: 'payu',
-          status: 'OPERATIONAL',
-          success_rate: 0.894,
-          p95_latency_ms: 460,
-          routing_weight_pct: 5,
-          supported_methods: ['netbanking', 'card', 'emi'],
-          circuit_breaker_active: false,
-          primary_currency: 'INR',
-        },
-      ];
-    }
-    return this.gatewayRoutes;
-  }
-
-  public updateGatewayRoute(routeId: string, updates: Partial<GatewayRouteHealth>): GatewayRouteHealth {
-    const routes = this.getGatewayRoutes();
-    const index = routes.findIndex((r) => r.id === routeId);
-    if (index === -1) {
-      throw new Error(`Gateway route ${routeId} not found`);
-    }
-    this.gatewayRoutes[index] = { ...this.gatewayRoutes[index], ...updates };
-    return this.gatewayRoutes[index];
   }
 }
 
 export const dbStore = new RecoverIQDataStore();
-
