@@ -8,7 +8,6 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-3178C6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-18.3+-61DAFB.svg?logo=react&logoColor=black)](https://reactjs.org/)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4-38B2AC.svg?logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
-[![Theme Support](https://img.shields.io/badge/Dark_Mode-Supported-indigo.svg)](#)
 
 ---
 
@@ -33,7 +32,6 @@
 - [9. Business Impact & ROI](#9-business-impact--roi)
 - [10. Quick Start & Local Setup](#10-quick-start--local-setup)
 - [11. Security, Privacy & RBI Compliance](#11-security-privacy--rbi-compliance)
-- [12. Product Roadmap](#12-product-roadmap)
 
 ---
 
@@ -348,19 +346,6 @@ npm start
 - **Masked PII**: Customer phone numbers and email addresses are masked by default (`ana***@gmail.com`, `+91 ••••• ••891`) across logs and views.
 - **Scoped API Permissions**: Gateway keys are stored in encrypted server memory and used exclusively with read and payment-link write scopes.
 - **Cryptographic Event Integrity**: Audit ledger records are linked via SHA-256 hashes to prevent log tampering or retrospective alteration.
-
----
-
-## 12. Product Roadmap
-
-- [x] **v1.0**: 9-Stage Recovery State Machine, 13-Feature ML Scoring, AI Studio.
-- [x] **v1.1**: Enterprise Maker-Checker High-Value Governance Queue.
-- [x] **v1.2**: Razorpay Test Mode Live API Connection & Webhook Ingestion.
-- [x] **v1.3**: Cryptographic Tamper-Evident Audit Ledger.
-- [x] **v1.4**: Full Dark Mode & High-Contrast Visual System.
-- [ ] **v2.0**: Native WhatsApp Business Cloud API automated 1-click checkout templates.
-- [ ] **v2.1**: Automated UPI Autopay Pre-Debit Notification (RBI compliance) auto-recovery scheduler.
-- [ ] **v2.2**: Multi-Gateway Dynamic Routing (Seamless failover from Primary Gateway $\to$ Secondary Gateway on 5xx downtime).
 
 ---
 
